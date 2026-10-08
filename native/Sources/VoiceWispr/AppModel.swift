@@ -900,14 +900,18 @@ private struct NoSpeechDetected: LocalizedError { let errorDescription: String? 
                 let style = document.settings.style(for: focus?.bundleID)
                 historyContext = HistoryCaptureContext(date: Date(), style: style, bundleID: focus?.bundleID,
                     appName: focus.flatMap { NSRunningApplication(processIdentifier: $0.pid)?.localizedName }, enabled: document.settings.historyEnabled ?? true)
+                var usingCloud = false
                 let selectedFormatter: any TextFormatting
-                if document.settings.cloudEnabled && style != .original {
-                    guard let endpoint = URL(string: document.settings.cloudEndpoint) else { throw VoiceError.message("Ungültige Cloud-Adresse") }
-                    let key = try CloudRecipient.authorizedKey(for: endpoint)
+                if document.settings.cloudEnabled, style != .original,
+                   let endpoint = URL(string: document.settings.cloudEndpoint),
+                   let key = try? CloudRecipient.authorizedKey(for: endpoint) {
                     selectedFormatter = CloudFormatter(endpoint: endpoint, model: document.settings.cloudModel, key: key)
+                    usingCloud = true
                 } else { selectedFormatter = formatter }
+                // A broken cloud setup (unconfirmed address, missing key) must fall back to the
+                // local formatter instead of aborting the whole recording.
                 let pipeline = ProcessingPipeline(speech: speech, formatter: selectedFormatter,
-                    preserveCompletedSentences: !document.settings.cloudEnabled); self.pipeline = pipeline
+                    preserveCompletedSentences: !usingCloud); self.pipeline = pipeline
                 // An immediate release still needs pipeline initialization so Stop can finish.
                 if state != .recording {
                     try await pipeline.start(sessionID: id, style: style, dictionary: dictionary)
